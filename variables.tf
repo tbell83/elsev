@@ -22,6 +22,34 @@ variable "instance_type" {
   default     = "t3.micro"
 }
 
+variable "bastion_ssh_enabled" {
+  description = "Whether to allow SSH to the bastion. Turning this on replaces the bastion. Turning it off only closes port 22."
+  type        = bool
+  default     = false
+}
+
+variable "bastion_ssh_public_key" {
+  description = "OpenSSH public key allowed to log in to the bastion as ec2-user. Required when bastion_ssh_enabled is true. Changing this replaces the bastion."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.bastion_ssh_enabled || var.bastion_ssh_public_key != ""
+    error_message = "bastion_ssh_public_key is required when bastion_ssh_enabled is true."
+  }
+}
+
+variable "bastion_ssh_allowed_cidrs" {
+  description = "IPv4 CIDRs allowed to SSH to the bastion when bastion_ssh_enabled is true. Use /32 for a single IP."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for cidr in var.bastion_ssh_allowed_cidrs : can(cidrnetmask(cidr))])
+    error_message = "Each entry must be an IPv4 CIDR, such as 203.0.113.10/32."
+  }
+}
+
 # Network
 variable "vpc_cidr" {
   description = "CIDR block for the VPC."

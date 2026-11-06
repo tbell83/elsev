@@ -8,7 +8,7 @@ resource "aws_iam_role" "bastion" {
   assume_role_policy = data.aws_iam_policy_document.instance_assume_role.json
 }
 
-# The bastion has no SSH key or inbound rules, so shell access is via SSM Session Manager.
+# SSH is off by default, so shell access is normally via SSM Session Manager.
 resource "aws_iam_role_policy_attachment" "bastion_ssm" {
   role       = aws_iam_role.bastion.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
@@ -27,6 +27,28 @@ resource "aws_security_group" "bastion" {
   tags = {
     Name = "${var.name}-bastion"
   }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "bastion_ssh" {
+  for_each = var.bastion_ssh_enabled ? toset(var.bastion_ssh_allowed_cidrs) : toset([])
+
+  security_group_id = aws_security_group.bastion.id
+  description       = "SSH from an allowed address"
+  cidr_ipv4         = each.value
+  ip_protocol       = "tcp"
+  from_port         = 22
+  to_port           = 22
+}
+
+# The key is generated outside Terraform, because a key generated here would put
+# the private key in state, which pull request workflows can read.
+resource "aws_key_pair" "bastion_ssh" {
+  count = var.bastion_ssh_enabled ? 1 : 0
+
+  # A generated name makes a new key replace the instance, which only reads the
+  # key at first boot.
+  key_name_prefix = "${var.name}-bastion-ssh-"
+  public_key      = var.bastion_ssh_public_key
 }
 
 resource "aws_vpc_security_group_egress_rule" "bastion_https" {
@@ -53,6 +75,7 @@ resource "aws_instance" "bastion" {
   subnet_id              = aws_subnet.public[0].id
   vpc_security_group_ids = [aws_security_group.bastion.id]
   iam_instance_profile   = aws_iam_instance_profile.bastion.name
+  key_name               = var.bastion_ssh_enabled ? aws_key_pair.bastion_ssh[0].key_name : null
 
   # Session Manager reaches AWS over the internet gateway, which needs a public IP.
   associate_public_ip_address = true
