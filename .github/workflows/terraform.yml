@@ -36,8 +36,6 @@ jobs:
           terraform_wrapper: false
       - run: terraform init -backend=false
       - run: terraform validate
-      - run: terraform -chdir=bootstrap init -backend=false
-      - run: terraform -chdir=bootstrap validate
 
   plan:
     runs-on: ubuntu-latest
