@@ -1,9 +1,6 @@
 resource "aws_s3_bucket" "state" {
-  bucket = "tbell-elsev-terraform-state"
-
-  lifecycle {
-    prevent_destroy = true
-  }
+  bucket        = "tbell-elsev-terraform-state"
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_versioning" "state" {
