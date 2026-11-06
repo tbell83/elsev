@@ -1,8 +1,7 @@
 name: Terraform Apply
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches:
       - main
 
@@ -33,5 +32,4 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-east-1
       - run: terraform init
-      # The role is read-only, so it can't write a state lock.
-      - run: terraform apply -lock=false
+      - run: terraform apply -auto-approve
