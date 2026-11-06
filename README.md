@@ -116,3 +116,24 @@ The lower cost comes with these trade-offs:
 - **Maintenance:** we are responsible for patching the instance and for its forwarding configuration. New AMI releases aren't applied automatically, because replacing the instance would interrupt outbound access.
 
 Consider moving to a NAT gateway if the environment starts to need high availability or sustained outbound traffic.
+
+### t3.micro instead of t2.micro
+
+All instances use t3.micro, because t2.micro isn't free tier eligible on AWS accounts created on or after July 15, 2025. Free tier eligibility only allows the instance type on those accounts. Its hours still use up the account's free tier credits.
+
+Approximate cost and capacity per instance in `us-east-1`:
+
+| | t2.micro | t3.micro |
+| --- | --- | --- |
+| Monthly running cost | $8.47 | $7.59 |
+| vCPUs | 1 | 2 |
+| Default CPU credit mode | Standard | Unlimited |
+| When CPU credits run out | Throttled to the baseline | Keeps running, with charges for sustained use above the baseline |
+
+The move has these consequences:
+
+- **Scaling reliability:** unlimited mode means a host isn't throttled when its credits run out. On a throttled host, reported CPU stays low, which can stall scaling and keep the CPU alarm from triggering.
+- **CPU charges:** a t3.micro's earned credits cover an average of 10% CPU per vCPU, and extra usage costs $0.05 per vCPU-hour. Holding the 30% scaling target around the clock adds about $14.60 per host per month.
+- **Task CPU reservation:** the task reserves 2048 CPU units, all of a t3.micro, so the service's CPU metric roughly matches host CPU. Update it in `ecs.tf` if `instance_type` changes to a size with a different vCPU count. A reservation larger than the instance can't be placed, and a smaller one makes the metric read high and the ASG scale out early.
+
+Setting the CPU credit mode to `standard` would cap the extra charges, but it would bring back the throttling problem.
