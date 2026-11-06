@@ -7,7 +7,7 @@ Terraform for a small AWS environment that runs an nginx container serving a "He
 - **Load balancer:** an internal ALB that is only reachable from the bastion host.
 - **Docker hosts:** an auto scaling group of t3.micro instances in a private subnet. It scales from 1 to 3 instances to keep the ECS service's average CPU near 30%, and a CloudWatch alarm notifies the `alerting` SNS topic if average host CPU goes above 70%.
 - **ECS service:** runs one copy of the nginx container on each Docker host.
-- **Bastion host:** an instance in a public subnet, accessed with AWS Systems Manager (SSM) Session Manager. It needs no SSH and has no ports open to the internet.
+- **Bastion host:** an instance in a public subnet, accessed with AWS Systems Manager (SSM) Session Manager. By default it has no SSH access and no ports open to the internet.
 - **NAT instance:** a t3.micro in a public subnet that gives the Docker hosts outbound access, so they can pull the container image from ECR.
 
 | Path | Contents |
@@ -21,32 +21,20 @@ Terraform for a small AWS environment that runs an nginx container serving a "He
 
 You need Terraform 1.17.1 or later, Docker, the AWS CLI, and AWS credentials for the target account. Everything deploys to `us-east-1`.
 
-1. Create the remote state bucket and the ECR repository. The bucket name is also set in the backend configuration in `versions.tf`.
+1. Create the remote state bucket and the ECR repository, then push an image so the ECS service has one to run when it's created. The bucket name is also set in the backend configuration in `versions.tf`.
 
    ```sh
-   terraform -chdir=bootstrap init
-   terraform -chdir=bootstrap apply
+   make bootstrap
    ```
 
-2. Push an image, so the ECS service has one to run when it's created.
-
-   ```sh
-   repository_url=$(aws ecr describe-repositories --region us-east-1 --repository-names webapp --query 'repositories[0].repositoryUri' --output text)
-   aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin "${repository_url%%/*}"
-   docker build -t "$repository_url:latest" .
-   docker push "$repository_url:latest"
-   ```
-
-3. Apply the primary configuration. Its import blocks take over the resources created in step 1. This first apply has to run from your machine, because it creates the roles that GitHub Actions uses.
+2. Apply the primary configuration. Its import blocks take over the relevant resources created in step 1. This first apply has to run from your machine, because it creates the roles that GitHub Actions uses.
 
    ```sh
    terraform init
-   terraform apply
+   AWS_REGION=us-east-1 terraform apply
    ```
 
-4. Delete `bootstrap/terraform.tfstate`. The primary state now owns the bucket and repository, so don't apply `bootstrap` again.
-
-5. In the GitHub repository, set these Actions variables to the ARNs of the roles created in step 3:
+3. In the GitHub repository, set these Actions variables to the ARNs of the roles created in step 2:
 
    | Variable | Role |
    | --- | --- |
@@ -54,7 +42,7 @@ You need Terraform 1.17.1 or later, Docker, the AWS CLI, and AWS credentials for
    | `AWS_PLAN_ROLE_ARN` | `elsev-github-actions-plan` |
    | `AWS_SITE_CHECK_ROLE_ARN` | `elsev-github-actions-site-check` |
 
-The bucket and repository are defined in both `bootstrap/` and the primary configuration, so make any change to them in both places.
+The statefile in `bootstrap/` contains the S3 bucket configuration and the repository configuration, neither of which is sensitive and can be committed to git.  Any changes to the bucket can be made in that state, the repo is imported into the primary state and can be managed there going forward.
 
 ## Deployment
 
@@ -75,9 +63,7 @@ The `latest` image tag is only used for the first revision. It's the image pushe
 Connecting to the bastion requires the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) for the AWS CLI.
 
 ```sh
-aws ssm start-session --region us-east-1 --target "$(aws ec2 describe-instances --region us-east-1 \
-  --filters Name=tag:Name,Values=elsev-bastion Name=instance-state-name,Values=running \
-  --query 'Reservations[0].Instances[0].InstanceId' --output text)"
+make bastion
 ```
 
 To reach the site, get the load balancer's DNS name:
@@ -91,6 +77,56 @@ Then request it from the bastion session:
 ```sh
 curl -i http://<alb-dns-name>/
 ```
+
+To reach the site from your own machine, forward a local port to the load balancer through the bastion. This uses Session Manager, so SSH doesn't need to be turned on.
+
+```sh
+make tunnel
+```
+
+While that runs, request the site from another terminal. Press Ctrl+C to close the tunnel.
+
+```sh
+curl -i http://localhost:8080/
+```
+
+To use a different local port, run `make tunnel LOCAL_PORT=9090`.
+
+### SSH to the bastion
+
+SSH is off by default. To turn it on, first generate a key on your machine. Keep the private key safe, because Terraform and AWS only ever get the public key.
+
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/elsev-bastion-key
+```
+
+Then change the defaults of these variables in `variables.tf`. GitHub Actions applies with those defaults, so values set only on your machine are reverted by the next push to `main`.
+
+| Variable | Set it to |
+| --- | --- |
+| `bastion_ssh_enabled` | `true` |
+| `bastion_ssh_public_key` | The contents of `~/.ssh/elsev-bastion-key.pub` |
+| `bastion_ssh_allowed_cidrs` | The IPv4 CIDRs allowed to connect, such as `["203.0.113.10/32"]` |
+
+Turning SSH on or changing `bastion_ssh_public_key` replaces the bastion, which changes its public IP.
+
+Turning SSH off closes port 22 without replacing the bastion, so the public key stays in `ec2-user`'s `authorized_keys` until the next replacement. If the key may be compromised, replace the bastion or remove the key from that file.
+
+To connect:
+
+```sh
+make ssh
+```
+
+This uses `~/.ssh/elsev-bastion-key`. To use a different key, run `make ssh SSH_KEY=/path/to/key`.
+
+## Tearing down the environment
+
+```sh
+make destroy
+```
+
+This destroys everything in the primary configuration and deletes the `web` task definition revisions. It keeps the bootstrap resources, which are the remote state bucket and the ECR repository with its images, so `terraform apply` can rebuild the environment without running `make bootstrap` again.
 
 ## Cost considerations
 
