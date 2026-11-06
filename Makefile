@@ -7,13 +7,14 @@ export AWS_REGION := us-east-1
 BASTION_NAME := elsev-bastion
 ALB_NAME := elsev
 REPOSITORY := webapp
+STATE_BUCKET := tbell-elsev-terraform-state
 TASK_FAMILY := web
 SSH_KEY ?= $(HOME)/.ssh/elsev-bastion-key
 LOCAL_PORT ?= 8080
 
 .DEFAULT_GOAL := help
 
-.PHONY: help bastion ssh tunnel bootstrap destroy
+.PHONY: help bastion ssh tunnel bootstrap destroy destroy-bootstrap
 
 help:
 	@echo "make bastion    Connect to the bastion with SSM Session Manager"
@@ -21,6 +22,7 @@ help:
 	@echo "make tunnel     Forward localhost:LOCAL_PORT (default 8080) to the ALB through the bastion"
 	@echo "make bootstrap  Create the bootstrap resources and push the initial image"
 	@echo "make destroy    Destroy everything except the bootstrap resources"
+	@echo "make destroy-bootstrap  Destroy the bootstrap resources, after make destroy"
 
 bastion:
 	@instance_id=$$(aws ec2 describe-instances \
@@ -82,3 +84,16 @@ destroy:
 	aws ecs list-task-definitions --family-prefix $(TASK_FAMILY) --status INACTIVE \
 		--query 'taskDefinitionArns[]' --output text \
 		| xargs -r -n 10 aws ecs delete-task-definitions --query 'tasks[].taskDefinitionArn' --output text --task-definitions
+
+# The bucket holds the primary state, so deleting it while that state still tracks
+# resources would leave them running with nothing managing them.
+destroy-bootstrap:
+	@if aws s3api head-bucket --bucket $(STATE_BUCKET) > /dev/null 2>&1; then
+		terraform init
+		if [ -n "$$(terraform state list)" ]; then
+			echo "The primary state still tracks resources. Run make destroy first." >&2
+			exit 1
+		fi
+	fi
+	terraform -chdir=bootstrap init
+	terraform -chdir=bootstrap destroy

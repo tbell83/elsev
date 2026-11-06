@@ -2,6 +2,8 @@
 
 Terraform for a small AWS environment that runs an nginx container serving a "Hello, World!" page.
 
+*** This repo assumes you are using an s3 bucket called `tbell-elsev-terraform-state` for remote state management, this value is set in `bootstrap/remote_state.tf` as well as `versions.tf` and should be updated accordingly ***
+
 ## Architecture
 
 - **Load balancer:** an internal ALB that is only reachable from the bastion host.
@@ -127,6 +129,14 @@ make destroy
 ```
 
 This destroys everything in the primary configuration and deletes the `web` task definition revisions. It keeps the bootstrap resources, which are the remote state bucket and the ECR repository with its images, so `terraform apply` can rebuild the environment without running `make bootstrap` again.
+
+To also delete the bootstrap resources, run this afterwards:
+
+```sh
+make destroy-bootstrap
+```
+
+This permanently deletes the state bucket, including every version of the state file, and the ECR repository with its images. It refuses to run while the primary state still tracks resources.
 
 ## Cost considerations
 
