@@ -1,0 +1,84 @@
+name: Container Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - webapp/**
+
+permissions:
+  contents: read
+
+# Overlapping deploys could finish out of order and leave an older image running.
+concurrency:
+  group: container-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      previous_task_definition: ${{ steps.deploy.outputs.previous_task_definition }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: |
+          repository_url=$(aws ecr describe-repositories --repository-names webapp --query 'repositories[0].repositoryUri' --output text)
+          aws ecr get-login-password | docker login --username AWS --password-stdin "${repository_url%%/*}"
+          docker build -t "$repository_url:$GITHUB_SHA" .
+          docker push "$repository_url:$GITHUB_SHA"
+          echo "IMAGE=$repository_url:$GITHUB_SHA" >> "$GITHUB_ENV"
+      # Start from the newest revision so settings changed in Terraform are kept.
+      - id: deploy
+        run: |
+          task_definition=$(aws ecs describe-task-definition --task-definition web --include TAGS \
+            | jq --arg image "$IMAGE" '{tags} + (.taskDefinition | {family, networkMode, requiresCompatibilities, containerDefinitions})
+                | (.containerDefinitions[] | select(.name == "web") | .image) = $image')
+          task_definition_arn=$(aws ecs register-task-definition --cli-input-json "$task_definition" \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          # Roll back to what the service is running, which may not be the newest revision.
+          previous_task_definition=$(aws ecs describe-services --cluster cluster --services web \
+            --query 'services[0].taskDefinition' --output text)
+          echo "previous_task_definition=${previous_task_definition##*/}" >> "$GITHUB_OUTPUT"
+          aws ecs update-service --cluster cluster --service web --task-definition "$task_definition_arn" --query 'service.serviceName' --output text
+          aws ecs wait services-stable --cluster cluster --services web
+
+  site_check:
+    needs: deploy
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/site_check.yml
+
+  rollback:
+    needs: [deploy, site_check]
+    # always() because this has to run after a failed deploy, which skips site_check.
+    if: >-
+      always()
+      && needs.deploy.outputs.previous_task_definition != ''
+      && needs.deploy.outputs.previous_task_definition != 'None'
+      && (needs.deploy.result == 'failure' || needs.site_check.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PREVIOUS_TASK_DEFINITION: ${{ needs.deploy.outputs.previous_task_definition }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: |
+          aws ecs update-service --cluster cluster --service web --task-definition "$PREVIOUS_TASK_DEFINITION" --query 'service.serviceName' --output text
+          aws ecs wait services-stable --cluster cluster --services web
+          echo "::warning::Rolled back to $PREVIOUS_TASK_DEFINITION"

@@ -69,28 +69,6 @@ resource "aws_subnet" "private" {
   }
 }
 
-resource "aws_eip" "nat" {
-  domain = "vpc"
-
-  tags = {
-    Name = "${var.name}-nat"
-  }
-
-  depends_on = [aws_internet_gateway.main]
-}
-
-# Gives the private instances outbound access to install Docker and pull images.
-resource "aws_nat_gateway" "main" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public[0].id
-
-  tags = {
-    Name = var.name
-  }
-
-  depends_on = [aws_internet_gateway.main]
-}
-
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -115,8 +93,8 @@ resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main.id
+    cidr_block           = "0.0.0.0/0"
+    network_interface_id = aws_instance.nat.primary_network_interface_id
   }
 
   tags = {

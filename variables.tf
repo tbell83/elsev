@@ -46,3 +46,33 @@ variable "private_subnet_cidr" {
   default     = "10.10.10.0/24"
 }
 
+variable "root_volume_size" {
+  description = "Root volume size in GiB. Docker images are stored here."
+  type        = number
+  default     = 30
+}
+
+variable "asg_min_size" {
+  description = "Minimum number of instances in the auto scaling group."
+  type        = number
+  default     = 1
+}
+
+variable "asg_max_size" {
+  description = "Maximum number of instances in the auto scaling group."
+  type        = number
+  default     = 3
+}
+
+variable "asg_cpu_target" {
+  description = "Average ECS service CPU utilization percentage the auto scaling group tracks."
+  type        = number
+  default     = 30
+}
+
+variable "asg_cpu_alarm_threshold" {
+  description = "Average CPU utilization percentage above which the CloudWatch alarm triggers."
+  type        = number
+  default     = 70
+}
+

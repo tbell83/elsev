@@ -77,3 +77,8 @@ import {
   to = aws_s3_bucket_server_side_encryption_configuration.state
   id = "tbell-elsev-terraform-state"
 }
+
+import {
+  to = aws_s3_bucket_policy.state
+  id = "tbell-elsev-terraform-state"
+}

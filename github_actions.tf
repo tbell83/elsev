@@ -4,11 +4,12 @@ resource "aws_iam_openid_connect_provider" "github" {
 }
 
 # Pull requests can run arbitrary workflow code before review, so they only get
-# read access. Admin is limited to workflows running on main.
+# read access. Admin and the site check are limited to workflows running on main.
 locals {
   github_actions_subjects = {
-    plan  = "repo:${var.github_repository}:pull_request"
-    admin = "repo:${var.github_repository}:ref:refs/heads/main"
+    plan       = "repo:${var.github_repository}:pull_request"
+    admin      = "repo:${var.github_repository}:ref:refs/heads/main"
+    site_check = "repo:${var.github_repository}:ref:refs/heads/main"
   }
 }
 
@@ -56,4 +57,36 @@ resource "aws_iam_role" "github_actions" {
 resource "aws_iam_role_policy_attachment" "github_actions_admin" {
   role       = aws_iam_role.github_actions.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+resource "aws_iam_role" "github_actions_site_check" {
+  name               = "${var.name}-github-actions-site-check"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_assume_role["site_check"].json
+}
+
+# Commands run as root on the bastion, so this allows only the site check
+# document rather than AWS-RunShellScript or an interactive session.
+data "aws_iam_policy_document" "github_actions_site_check" {
+  statement {
+    actions = ["ssm:SendCommand"]
+    resources = [
+      aws_instance.bastion.arn,
+      aws_ssm_document.site_check.arn,
+    ]
+  }
+
+  # These actions don't support resource-level permissions.
+  statement {
+    actions = [
+      "ec2:DescribeInstances",
+      "ssm:GetCommandInvocation",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_site_check" {
+  name   = "site-check"
+  role   = aws_iam_role.github_actions_site_check.id
+  policy = data.aws_iam_policy_document.github_actions_site_check.json
 }
