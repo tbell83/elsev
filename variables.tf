@@ -19,7 +19,7 @@ variable "region" {
 variable "instance_type" {
   description = "EC2 instance type. The AMI is x86_64, so this must be an x86_64 type."
   type        = string
-  default     = "t2.micro"
+  default     = "t3.micro"
 }
 
 # Network

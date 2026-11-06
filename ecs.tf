@@ -19,14 +19,14 @@ resource "aws_ecs_task_definition" "web" {
   skip_destroy = true
 
   # The ASG scales on the service's CPU metric, which is relative to this cpu
-  # reservation. 1024 is all of a t2.micro, so the metric roughly matches host
+  # reservation. 2048 is all of a t3.micro, so the metric roughly matches host
   # CPU. Keep it in line with instance_type.
   container_definitions = jsonencode([
     {
       name              = "web"
       image             = "${aws_ecr_repository.webapp.repository_url}:latest"
       essential         = true
-      cpu               = 1024
+      cpu               = 2048
       memoryReservation = 256
 
       portMappings = [

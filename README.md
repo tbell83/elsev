@@ -5,10 +5,10 @@ Terraform for a small AWS environment that runs an nginx container serving a "He
 ## Architecture
 
 - **Load balancer:** an internal ALB that is only reachable from the bastion host.
-- **Docker hosts:** an auto scaling group of t2.micro instances in a private subnet. It scales from 1 to 3 instances to keep the ECS service's average CPU near 30%, and a CloudWatch alarm notifies the `alerting` SNS topic if average host CPU goes above 70%.
+- **Docker hosts:** an auto scaling group of t3.micro instances in a private subnet. It scales from 1 to 3 instances to keep the ECS service's average CPU near 30%, and a CloudWatch alarm notifies the `alerting` SNS topic if average host CPU goes above 70%.
 - **ECS service:** runs one copy of the nginx container on each Docker host.
 - **Bastion host:** an instance in a public subnet, accessed with AWS Systems Manager (SSM) Session Manager. It needs no SSH and has no ports open to the internet.
-- **NAT instance:** a t2.micro in a public subnet that gives the Docker hosts outbound access, so they can pull the container image from ECR.
+- **NAT instance:** a t3.micro in a public subnet that gives the Docker hosts outbound access, so they can pull the container image from ECR.
 
 | Path | Contents |
 | --- | --- |
@@ -102,17 +102,17 @@ Approximate monthly cost in `us-east-1`, excluding the public IPv4 address that 
 
 | | NAT gateway | NAT instance |
 | --- | --- | --- |
-| Running cost | $32.85 | $8.47 (t2.micro) |
+| Running cost | $32.85 | $7.59 (t3.micro) |
 | Root volume | None | $0.64 (8 GB gp3) |
 | Data processing | $0.045/GB | None |
-| **Total before data** | **$32.85** | **$9.11** |
+| **Total before data** | **$32.85** | **$8.23** |
 
 Standard AWS data transfer charges apply to both.
 
 The lower cost comes with these trade-offs:
 
 - **Availability:** the instance is a single point of failure and nothing replaces it automatically. If it fails, running tasks should keep serving through the ALB, but new tasks and hosts can't start because they can't reach ECS or ECR.
-- **Throughput:** a t2.micro has modest network capacity and relies on CPU burst credits, so large image pulls can be slow.
+- **Throughput:** a t3.micro has modest sustained network capacity, so large image pulls can be slow, and sustained CPU use above its baseline adds charges.
 - **Maintenance:** we are responsible for patching the instance and for its forwarding configuration. New AMI releases aren't applied automatically, because replacing the instance would interrupt outbound access.
 
 Consider moving to a NAT gateway if the environment starts to need high availability or sustained outbound traffic.
