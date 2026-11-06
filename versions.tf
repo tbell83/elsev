@@ -2,10 +2,11 @@ terraform {
   required_version = ">= 1.17.1"
 
   backend "s3" {
-    bucket         = "terraform-state-tbell-elsev" # this is the bucket created when bootstrapping the remote state
-    key            = "tbell83/elsev/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
+    bucket       = "tbell-elsev-terraform-state" # this is the bucket created when bootstrapping the remote state
+    key          = "tbell83/elsev/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
   }
 
   required_providers {
